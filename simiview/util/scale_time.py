@@ -5,7 +5,7 @@ scale = {
     'ms': 1e-3,
     'us': 1e-6
 }
-def get_scale_factor(time, input_units, output_units, sampling_rate=None):
+def scale_time(time, input_units, output_units, sampling_rate=None):
     input_scale = sampling_rate if input_units=='sampling_rate' else scale[input_units]
     output_scale = sampling_rate if output_units=='sampling_rate' else scale[output_units]
-    return time / input_scale * output_scale
+    return time * input_scale / output_scale
