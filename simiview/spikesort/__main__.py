@@ -3,5 +3,5 @@ from simiview.spikesort.app import SpikeSortApp
 
 if __name__ == '__main__':
     app.use_app('pyqt5')
-    spikesort_app = SpikeSortApp.from_directory('simiview/data')
+    spikesort_app = SpikeSortApp.from_directory('data')
     app.run()
