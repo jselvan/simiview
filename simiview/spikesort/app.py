@@ -1,31 +1,15 @@
-from itertools import combinations
 from pathlib import Path
 import numpy as np
 from vispy import scene
-from vispy.scene import visuals
-from vispy.scene.visuals import Line, Text, InfiniteLine
+from vispy.scene.visuals import XYZAxis, Markers
 from vispy.scene.cameras import ArcballCamera
 
-from threading import Thread
-
-from simiview.spikesort.barplot import BarPlot
 from simiview.spikesort.lasso import LassoSelector
 from simiview.spikesort.linecollection import LineCollection
-from simiview.spikesort.ccg_matrix import ccg_matrix
 from simiview.spikesort.ccg_view_manager import CCGViewManager
 from simiview.spikesort.unit_view_manager import UnitViewManager
 from simiview.util import scale_time
-
-
-
-COLOURS = {
-    -1: [0.412, 0.412, 0.412],
-        0: [1.000, 1.000, 1.000],
-        1: [0.102, 0.522, 1.000],
-        2: [0.831, 0.067, 0.349],
-        3: [0.102, 1.000, 0.102],
-        4: [0.365, 0.227, 0.608]
-}
+from simiview.spikesort.colours import COLOURS
 
 class SpikeSortApp(scene.SceneCanvas):
 
@@ -60,7 +44,7 @@ class SpikeSortApp(scene.SceneCanvas):
         # self.view.camera.zoom_value = .005
         self.view.interactive = True
         self.view.border_color = 'red'
-        axis = visuals.XYZAxis(parent=self.view.scene)
+        axis = XYZAxis(parent=self.view.scene)
         self.view.add(axis)
         ###
         self.graph_widget = grid.add_widget(row=0, col=2, row_span=2)
@@ -83,7 +67,7 @@ class SpikeSortApp(scene.SceneCanvas):
 
         ####
         # Set up the scatter plot and lines
-        self.scatter = visuals.Markers()
+        self.scatter = Markers()
         self.scatter.set_data(self.points)
         self.view.add(self.scatter)
         self.lines = LineCollection(waveforms)
