@@ -6,24 +6,29 @@ from vispy.scene import visuals
 from vispy.scene.visuals import Line, Text, InfiniteLine
 from vispy.scene.cameras import ArcballCamera
 
+from threading import Thread
+
 from simiview.spikesort.barplot import BarPlot
 from simiview.spikesort.lasso import LassoSelector
 from simiview.spikesort.linecollection import LineCollection
 from simiview.spikesort.ccg_matrix import ccg_matrix
+from simiview.spikesort.ccg_view_manager import CCGViewManager
+from simiview.spikesort.unit_view_manager import UnitViewManager
 from simiview.util import scale_time
 
-from threading import Thread
 
+
+COLOURS = {
+    -1: [0.412, 0.412, 0.412],
+        0: [1.000, 1.000, 1.000],
+        1: [0.102, 0.522, 1.000],
+        2: [0.831, 0.067, 0.349],
+        3: [0.102, 1.000, 0.102],
+        4: [0.365, 0.227, 0.608]
+}
 
 class SpikeSortApp(scene.SceneCanvas):
-    COLOURS = {
-        -1: [0.412, 0.412, 0.412],
-         0: [1.000, 1.000, 1.000],
-         1: [0.102, 0.522, 1.000],
-         2: [0.831, 0.067, 0.349],
-         3: [0.102, 1.000, 0.102],
-         4: [0.365, 0.227, 0.608]
-    }
+
     def __init__(self, points, waveforms, timestamps, save_path, clusters=None):
         scene.SceneCanvas.__init__(self, keys='interactive', size=(800, 600))
         self.unfreeze()
@@ -48,9 +53,11 @@ class SpikeSortApp(scene.SceneCanvas):
         self.pointcloud_container = grid.add_widget(row=0, col=0, row_span=5, col_span=2)
         self.pointcloud_container.interactive = True
 
-
         self.view = self.pointcloud_container.add_view()
+        # self.view.camera = 'turntable'
+        # self.view.camera = 'arcball'
         self.view.camera = ArcballCamera(fov=0, scale_factor=200)
+        # self.view.camera.zoom_value = .005
         self.view.interactive = True
         self.view.border_color = 'red'
         axis = visuals.XYZAxis(parent=self.view.scene)
@@ -60,30 +67,21 @@ class SpikeSortApp(scene.SceneCanvas):
         self.graph_view = self.graph_widget.add_view()
         self.graph_view.camera = 'panzoom'
         minval, maxval = self.waveforms.min(None), self.waveforms.max(None)
-        self._waveform_xy = 0, minval
-        self.graph_view.camera.rect = (0, minval), (40, maxval-minval)
-        self._waveform_rect = self.graph_view.camera.rect
+        self.graph_view.camera.rect = (0, minval), (40, maxval - minval)
         ###
         self.units_widget = grid.add_widget(row=2, col=2)
-        self.units_grid = self.units_widget.add_grid()
-        self.unit_views = {}
-        self.unit_waveforms = {}
-        self.update_units_grid()
-        self.update_units_view()
+        self.unit_manager = UnitViewManager(self, self.units_widget)
+        self.unit_manager.update_units_view()
         ###
         self.ccg_widget = grid.add_widget(row=3, col=2, row_span=2)
-        self.ccg_grid = self.ccg_widget.add_grid()
-        self.ccg_views = {}
-        self.ccg_bars = {}
-        self.update_ccg_grid()
-        self.update_ccgs()
+        self.ccg_manager = CCGViewManager(self, self.ccg_widget, self.save_path)
+        self.ccg_manager.update_ccgs()
 
         # store home position of cameras
         self.view.camera.set_default_state()
         self.graph_view.camera.set_default_state()
 
         ####
-        self.update_ccgs()
         # Set up the scatter plot and lines
         self.scatter = visuals.Markers()
         self.scatter.set_data(self.points)
@@ -96,7 +94,7 @@ class SpikeSortApp(scene.SceneCanvas):
         self.lasso.register_events(self)
 
         self.show()
-    
+
     @classmethod
     def from_directory(cls, directory, save_path=None):
         directory = Path(directory)
@@ -123,77 +121,12 @@ class SpikeSortApp(scene.SceneCanvas):
     def lasso_callback(self, indices):
         self.update_cluster(indices, self.state)
         self.update_colors()
-    
-    def _add_units_view(self, cluster):
-        view = self.units_grid.add_view(row=0, col=cluster)
-        view.camera = 'panzoom'
-        view.camera.rect = self._waveform_rect
-        view.border_color = self.COLOURS[cluster]
-        self.unit_views[cluster] = view
 
-    def update_units_grid(self):
-        existing_views = list(self.unit_views.keys())
-        clusters = np.unique(self.clusters)
-        for unit in existing_views:
-            if unit not in clusters:
-                widget = self.unit_views.pop(unit)
-                if hasattr(widget.parent, 'remove'):
-                    widget.parent.remove(widget)
-        for cluster in clusters:
-            if cluster == -1:
-                continue
-            if cluster not in self.unit_views:
-                self._add_units_view(cluster)
-
-    def _compute_waveform_data(self):
+    def get_sorted_cluster_ids(self):
         unique_clusters = np.unique(self.clusters)
-        waveform_data = {}
-        t = np.arange(self.waveforms.shape[1])
-        for cluster in unique_clusters:
-            if cluster == -1:
-                continue
-            mean_ = self.waveforms[self.clusters == cluster].mean(axis=0)
-            mean_ = np.array([t, mean_]).T
-            waveform_data[cluster] = {
-                'mean': mean_,
-                'count': (self.clusters == cluster).sum()
-            }
-        return waveform_data
-
-    def update_units_view(self):
-        self.threads["units"] = Thread(target=self._update_units_view, name="update_units_view", daemon=True)
-        self.threads["units"].start()
-
-    def _update_units_view(self):
-        # get sorted unique clusters
-        waveform_data = self._compute_waveform_data()
-        self.update_units_grid()
-        for cluster, wf_info in waveform_data.items():
-            label_text = "N={count}".format(**wf_info)
-            if cluster not in self.unit_waveforms:
-                line = Line(
-                    wf_info['mean'],
-                    color=self.COLOURS[cluster],
-                    parent=self.unit_views[cluster].scene
-                )
-                
-                x, y = self._waveform_xy
-                text_xy = x, y * 0.9
-                label = Text(label_text,
-                    color='w',
-                    anchor_x='left',
-                    parent=self.unit_views[cluster].scene,
-                    pos=text_xy
-                )
-                self.unit_waveforms[cluster] = {
-                    'line': line,
-                    'label': label
-                }
-            else:
-                self.unit_waveforms[cluster]['line'].set_data(wf_info['mean'])
-                self.unit_waveforms[cluster]['label'].text = label_text
-        self.update()
-
+        unique_clusters = unique_clusters[unique_clusters>0]
+        unique_clusters = unique_clusters.tolist()
+        return unique_clusters
 
     def update_cluster(self, indices, operation):
         if operation == 'add':
@@ -205,77 +138,14 @@ class SpikeSortApp(scene.SceneCanvas):
             self.clusters[indices] = self.active_cluster
         elif operation == 'invalidate':
             self.clusters[indices] = -1
-        np.save(self.save_path/'clusters.npy', self.clusters)
+        np.save(self.save_path / 'clusters.npy', self.clusters)
         self.update_colors()
-        self.update_ccgs()
-        self.update_units_view()
-
-    def _add_ccg_view(self, a, b):
-        view = self.ccg_grid.add_view(row=a-1, col=b-1)
-        view.camera = 'panzoom'
-        view.camera.rect = (-10, 0, 20, 1)
-        view.border_color = 'red'
-        InfiniteLine(-1, color=(1., 1., 1., 1.), parent=view.scene)
-        InfiniteLine(1, color=(1., 1., 1., 1.), parent=view.scene)
-        self.ccg_views[(a, b)] = view
-
-    def update_ccg_grid(self):
-        unique_clusters = self.get_sorted_cluster_ids()
-        existing_views = list(self.ccg_views.keys())
-        for a, b in existing_views:
-            if a not in unique_clusters or b not in unique_clusters:
-                widget = self.ccg_views.pop((a, b))
-                if hasattr(widget.parent, 'remove'):
-                    widget.parent.remove(widget)
-        for a in unique_clusters:
-            if (a, a) not in self.ccg_views:
-                self._add_ccg_view(a, a)
-        for (a, b) in combinations(unique_clusters, 2):
-            if (a, b) not in self.ccg_views:
-                self._add_ccg_view(a, b)
-    
-    def update_ccgs(self):
-        self.threads["ccg"] = Thread(target=self._update_ccgs, name="update_ccgs", daemon=True)
-        for view in self.ccg_views.values():
-            view.bgcolor = 'grey'
-        self.threads["ccg"].start()
-
-    def get_sorted_cluster_ids(self):
-        unique_clusters = np.unique(self.clusters)
-        unique_clusters = unique_clusters[unique_clusters>0]
-        unique_clusters = unique_clusters.tolist()
-        return unique_clusters
-    
-    def _compute_ccgs(self):
-        unique_clusters = self.get_sorted_cluster_ids()
-        lags, ccg = ccg_matrix(
-            self.timestamps_ms, 
-            self.clusters, 
-            bin_size=0.2, 
-            max_lag=10, 
-            unitids=unique_clusters
-        )
-        np.save(self.save_path/'lags.npy', lags)
-        np.save(self.save_path/'ccg.npy', ccg)
-        return lags, ccg
-        
-
-    def _update_ccgs(self):
-        # get sorted unique clusters
-        lags, ccg = self._compute_ccgs()
-        self.update_ccg_grid()
-        for (a, b), pair_ccg in ccg.items():
-            if (a, b) not in self.ccg_bars:
-                self.ccg_bars[a,b] = BarPlot(lags, pair_ccg, color=self.COLOURS[a], parent=self.ccg_views[a,b].scene)
-            else:
-                self.ccg_bars[a,b].set_data(x=lags, y=pair_ccg, color=self.COLOURS[a])
-        for view in self.ccg_views.values():
-            view.bgcolor = 'black'
-        self.update()
+        self.ccg_manager.update_ccgs()
+        self.unit_manager.update_units_view()
 
     def update_colors(self):
         colors = np.ones((self.points.shape[0], 4), dtype=np.float32)
-        for cluster, color in self.COLOURS.items():
+        for cluster, color in COLOURS.items():
             indices = self.clusters == cluster
             colors[indices, :3] = color
         z_order = self.clusters.copy()
