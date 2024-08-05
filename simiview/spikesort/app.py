@@ -3,7 +3,8 @@ from pathlib import Path
 import numpy as np
 from vispy import scene
 from vispy.scene import visuals
-from vispy.scene.visuals import Line, Text
+from vispy.scene.visuals import Line, Text, InfiniteLine
+from vispy.scene.cameras import ArcballCamera
 
 from simiview.spikesort.barplot import BarPlot
 from simiview.spikesort.lasso import LassoSelector
@@ -49,9 +50,7 @@ class SpikeSortApp(scene.SceneCanvas):
 
 
         self.view = self.pointcloud_container.add_view()
-        # self.view.camera = 'turntable'
-        self.view.camera = 'arcball'
-        # self.view.camera.zoom_value = .005
+        self.view.camera = ArcballCamera(fov=0, scale_factor=200)
         self.view.interactive = True
         self.view.border_color = 'red'
         axis = visuals.XYZAxis(parent=self.view.scene)
@@ -215,10 +214,9 @@ class SpikeSortApp(scene.SceneCanvas):
         view = self.ccg_grid.add_view(row=a-1, col=b-1)
         view.camera = 'panzoom'
         view.camera.rect = (-10, 0, 20, 1)
-        # view.camera.aspect = 1
-        # view.camera.flip = (0, -1)
-        # view.camera.interactive = False
         view.border_color = 'red'
+        InfiniteLine(-1, color=(1., 1., 1., 1.), parent=view.scene)
+        InfiniteLine(1, color=(1., 1., 1., 1.), parent=view.scene)
         self.ccg_views[(a, b)] = view
 
     def update_ccg_grid(self):
@@ -302,7 +300,6 @@ class SpikeSortApp(scene.SceneCanvas):
             self.state = 'remove'
         elif 'Control' in event.modifiers and event.key == "a":
             self.lasso.active = True
-            # self.active_cluster = 1
             self.state = 'add'
         elif 'Control' in event.modifiers and event.key == "n":
             self.lasso.active = True
