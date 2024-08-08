@@ -74,7 +74,7 @@ class SpikeSortApp(scene.SceneCanvas):
         self.graph_view.add(self.lines)
         self.update_colors()
         # Lasso visual to draw the lasso polygon
-        self.lasso = LassoSelector(self.scatter, self.points, self.pointcloud_container, self, callback=self.lasso_callback)
+        self.lasso = LassoSelector(self.scatter, self.points, self.pointcloud_container, callback=self.update_cluster)
         self.lasso.register_events(self)
 
         self.show()
@@ -102,25 +102,21 @@ class SpikeSortApp(scene.SceneCanvas):
         
         return cls(points, waveforms, timestamps, save_path=save_path, clusters=clusters)
 
-    def lasso_callback(self, indices):
-        self.update_cluster(indices, self.state)
-        self.update_colors()
-
     def get_sorted_cluster_ids(self):
         unique_clusters = np.unique(self.clusters)
         unique_clusters = unique_clusters[unique_clusters>0]
         unique_clusters = unique_clusters.tolist()
         return unique_clusters
 
-    def update_cluster(self, indices, operation):
-        if operation == 'add':
+    def update_cluster(self, indices):
+        if self.state == 'add':
             self.clusters[indices] = self.active_cluster
-        elif operation == 'remove':
+        elif self.state == 'remove':
             self.clusters[indices] = 0
-        elif operation == 'replace':
+        elif self.state == 'replace':
             self.clusters[self.clusters == self.active_cluster] = 0
             self.clusters[indices] = self.active_cluster
-        elif operation == 'invalidate':
+        elif self.state == 'invalidate':
             self.clusters[indices] = -1
         np.save(self.save_path / 'clusters.npy', self.clusters)
         self.update_colors()
@@ -179,7 +175,9 @@ class SpikeSortApp(scene.SceneCanvas):
             if self.active_point is not None:
                 self.active_point = None
                 self.update_colors()
-    
-    def __exit__(self, type, value, traceback):
-        self.threads["ccg"].join()
-        return super().__exit__(type, value, traceback)
+
+    def close(self):
+        self.lasso.unregister_events(self)
+        for thread in self.threads.values():
+            thread.stop()
+        super().close()

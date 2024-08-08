@@ -3,7 +3,7 @@ from vispy.scene.visuals import Line
 
 class LassoSelector:
     MIN_MOVE_UPDATE_THRESHOLD = 5
-    def __init__(self, scatter, points, container, canvas, callback=None):
+    def __init__(self, scatter, points, container, callback=None):
         self.lasso_visual = Line(color='yellow', width=2, method='gl', connect='strip')
         self.lasso_view = container.add_view()
         self.lasso_view.interactive = False  # Make the lasso view non-interactive
