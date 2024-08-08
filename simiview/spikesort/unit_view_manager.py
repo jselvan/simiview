@@ -12,6 +12,9 @@ class UnitViewManager:
         self.unit_waveforms = {}
         self.units_grid = self.widget.add_grid()
 
+        # select all clusters but the noise cluster by default
+        self.selected = set(self.clusters[self.clusters != -1])
+
         self._waveform_xy = 0, self.waveforms.min()
         self._waveform_rect = (0, self.waveforms.min()), (40, self.waveforms.max() - self.waveforms.min())
 
@@ -28,7 +31,34 @@ class UnitViewManager:
         view.camera = 'panzoom'
         view.camera.rect = self._waveform_rect
         view.border_color = COLOURS[cluster]
+        view.events.mouse_press.connect(self.mouse_press_handler_gen(cluster))
         self.unit_views[cluster] = view
+
+    def set_selected(self, cluster):
+        if cluster in self.selected:
+            self.selected.remove(cluster)
+        else:
+            self.selected.add(cluster)
+        for c, view in self.unit_views.items():
+            if c in self.selected:
+                view.bgcolor = 'black'
+            else:
+                view.bgcolor = 'grey'
+
+    def set_active(self, cluster):
+        for c, view in self.unit_views.items():
+            if c == cluster:
+                view.bgcolor = 'white'
+            else:
+                view.bgcolor = 'black'
+
+    def mouse_press_handler_gen(self, cluster):
+        def mouse_press_handler(event):
+            if event.button == 1:
+                self.set_active(cluster)
+            elif event.button == 2:
+                self.set_selected(cluster)
+        return mouse_press_handler
 
     def update_units_grid(self):
         existing_views = list(self.unit_views.keys())
