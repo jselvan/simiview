@@ -9,14 +9,17 @@ from simiview.spikesort.ccg_matrix import ccg_matrix
 
 
 class CCGViewManager:
-    def __init__(self, parent, widget, save_path):
+    def __init__(self, parent, widget):
         self.parent = parent
         self.widget = widget
-        self.save_path = save_path
         self.ccg_views = {}
         self.ccg_bars = {}
         self.ccg_grid = self.widget.add_grid()
-    
+
+    @property
+    def save_path(self):
+        return self.parent.save_path
+
     @property
     def timestamps_ms(self):
         return self.parent.timestamps_ms
@@ -40,8 +43,10 @@ class CCGViewManager:
         for a, b in existing_views:
             if a not in unique_clusters or b not in unique_clusters:
                 widget = self.ccg_views.pop((a, b))
-                if hasattr(widget.widget, 'remove'):
-                    widget.widget.remove(widget)
+                try:
+                    self.ccg_grid.remove_widget(widget)
+                except Exception as e:
+                    print(e)
         for a in unique_clusters:
             if (a, a) not in self.ccg_views:
                 self._add_ccg_view(a, a)
@@ -50,8 +55,10 @@ class CCGViewManager:
                 self._add_ccg_view(a, b)
 
     def update_ccgs(self):
-        lags, ccg = self._compute_ccgs()
         self.update_ccg_grid()
+        if len(self.get_sorted_cluster_ids()) == 0:
+            return
+        lags, ccg = self._compute_ccgs()
         for (a, b), pair_ccg in ccg.items():
             if (a, b) not in self.ccg_bars:
                 self.ccg_bars[a, b] = BarPlot(lags, pair_ccg, color=COLOURS[a], parent=self.ccg_views[a, b].scene)
@@ -75,7 +82,7 @@ class CCGViewManager:
             max_lag=10,
             unitids=unique_clusters
         )
-        np.save(self.save_path / 'lags.npy', lags)
-        np.save(self.save_path / 'ccg.npy', ccg)
+        # np.save(self.save_path / 'lags.npy', lags)
+        # np.save(self.save_path / 'ccg.npy', ccg)
         return lags, ccg
 

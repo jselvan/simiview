@@ -13,10 +13,18 @@ class UnitViewManager:
         self.units_grid = self.widget.add_grid()
 
         # select all clusters but the noise cluster by default
-        self.selected = set(self.clusters[self.clusters != -1])
+        if self.clusters is not None:
+            self.selected = set(self.clusters[self.clusters != -1])
+        else:
+            self.selected = set()
 
-        self._waveform_xy = 0, self.waveforms.min()
-        self._waveform_rect = (0, self.waveforms.min()), (40, self.waveforms.max() - self.waveforms.min())
+    @property
+    def waveform_xy(self):
+        return 0, self.waveforms.min()
+    
+    @property
+    def waveform_rect(self):
+        return (0, self.waveforms.min()), (40, self.waveforms.max() - self.waveforms.min())
 
     @property
     def waveforms(self):
@@ -29,7 +37,7 @@ class UnitViewManager:
     def _add_units_view(self, cluster):
         view = self.units_grid.add_view(row=0, col=cluster)
         view.camera = 'panzoom'
-        view.camera.rect = self._waveform_rect
+        view.camera.rect = self.waveform_rect
         view.border_color = COLOURS[cluster]
         view.events.mouse_press.connect(self.mouse_press_handler_gen(cluster))
         self.unit_views[cluster] = view
@@ -102,7 +110,7 @@ class UnitViewManager:
                     parent=self.unit_views[cluster].scene
                 )
 
-                x, y = self._waveform_xy
+                x, y = self.waveform_xy
                 text_xy = x, y * 0.9
                 label = Text(label_text,
                              color='w',

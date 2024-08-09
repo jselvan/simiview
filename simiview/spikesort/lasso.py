@@ -3,20 +3,25 @@ from vispy.scene.visuals import Line
 
 class LassoSelector:
     MIN_MOVE_UPDATE_THRESHOLD = 5
-    def __init__(self, scatter, points, container, callback=None):
+    def __init__(self, parent, container, callback=None):
         self.lasso_visual = Line(color='yellow', width=2, method='gl', connect='strip')
         self.lasso_view = container.add_view()
         self.lasso_view.interactive = False  # Make the lasso view non-interactive
         self.lasso_view.add(self.lasso_visual)
 
-        self.scatter_data = points
-        self.scatter = scatter
+        self.parent = parent
         self.selected_points = []
         self.lasso_points = []
         self.dragging = False
         self.last_position = None
         self.callback = callback
         self.active = False
+
+    @property
+    def points(self):
+        points = self.parent.scatter.get_transform('visual', 'canvas').map(self.parent.points)
+        points /= points[:,3:]
+        return points
 
     def on_mouse_press(self, event):
         if self.active and event.button == 1:
@@ -66,9 +71,7 @@ class LassoSelector:
         if poly.shape[0] < 3:
             return
 
-        points = self.scatter.get_transform('visual', 'canvas').map(self.scatter_data)
-        points /= points[:,3:]
-        indices = self.points_in_polygon(points, poly)
+        indices = self.points_in_polygon(self.points, poly)
         self.selected_points = indices
         if self.callback is not None:
             self.callback(indices)

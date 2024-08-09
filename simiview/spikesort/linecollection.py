@@ -2,16 +2,16 @@ import numpy as np
 from vispy.scene.visuals import Line
 
 class LineCollection(Line):
-    def __init__(self, lines, **kwargs):
+    def __init__(self, **kwargs):
         if 'pos' in kwargs:
             raise ValueError
         if 'connect' in kwargs:
             raise ValueError
-        self.lines = lines
-        kwargs['connect'] = self.get_connect()
+        self.lines = None
         self.offset = kwargs.pop('offset', 0)
         Line.__init__(self)
-        self.set_data(**kwargs)
+        if 'lines' in kwargs:
+            self.set_data(**kwargs)
 
     def get_pos(self, lines: np.ndarray, offset: np.ndarray, idx: np.ndarray) -> np.ndarray:
         """

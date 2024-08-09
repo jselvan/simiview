@@ -5,8 +5,7 @@ class BarPlot(Polygon):
     def __init__(self, x, y, bottom=-.1, **kwargs):
         bottom = self._get_bottoms(x, bottom)
         pos = self.get_vertices(x, y, bottom)
-        # print(pos)
-        # kwargs['triangulate'] = False
+        kwargs['triangulate'] = False
         Polygon.__init__(self, pos=pos, **kwargs)
 
     def _get_bottoms(self, x, bottom):
