@@ -2,6 +2,7 @@ import numpy as np
 from vispy import scene
 
 from simianpy.signal import sosFilter
+import simianpy as simi
 
 filt = (
     sosFilter('bandstop', 6, [49.9, 50.1], 30000) 
@@ -10,7 +11,8 @@ filt = (
 )
 
 class SingleChannelViewer:
-    def __init__(self, view, update_spikes_callback=None):
+    @simi.misc.add_logging
+    def __init__(self, view, update_spikes_callback=None, logger=None):
         self.view = view
         self.sig = None
         self.channel_idx = None
@@ -23,7 +25,9 @@ class SingleChannelViewer:
         self.scale_factor=1
         self.threshold = None
         self.update_spikes_callback = update_spikes_callback
-    
+        self.logger = logger
+
+        self._median_trace = None
         self._init_vispy()
 
     def _get_data_chunk(self):
@@ -35,8 +39,10 @@ class SingleChannelViewer:
         data_chunk = data_chunk.magnitude.squeeze()
 
         if self.is_cmr_enabled:
-            all_channels = self.sig.load(time_slice=(start, end), channel_indexes=self.all_channels).magnitude
-            data_chunk = data_chunk - np.median(all_channels, axis=1)
+            # all_channels = self.sig.load(time_slice=(start, end), channel_indexes=self.all_channels).magnitude
+            # data_chunk = data_chunk - np.median(all_channels, axis=1)
+            median = self.get_median_trace(time_slice=(start, end))
+            data_chunk = data_chunk - median
         data_chunk = data_chunk * self.scale_factor
         if self.is_filter_enabled:
             data_chunk = filt(data_chunk)
@@ -122,32 +128,95 @@ class SingleChannelViewer:
             self.detect_waveforms()
         self.update_plot()
     
+    @property
+    def sig(self):
+        return self._sig
+    @sig.setter
+    def sig(self, value):
+        self._sig = value
+        self._median_trace = None
+    @property
+    def all_channels(self):
+        return self._all_channels
+    @all_channels.setter
+    def all_channels(self, value):
+        self._all_channels = value
+        self._median_trace = None
+    def get_median_trace(self, time_slice=None):
+        """Get the median trace of all channels
+
+        Parameters
+        ----------
+        time_slice : tuple, optional
+            Tuple with the start and stop of the time slice in seconds, by default None
+
+        Returns
+        -------
+        np.ndarray
+            The median trace of all channels in the time slice 
+            cast to np.float16
+        """
+        if time_slice is not None:
+            self.logger.info(f"Getting median trace for time slice {time_slice}")
+            start, stop = time_slice
+            start_idx = int(round(start * self.sig.sampling_rate))
+            stop_idx = int(round(stop * self.sig.sampling_rate))
+            time_slice_samples = slice(start_idx, stop_idx)
+        else:
+            self.logger.info(f"Getting median trace for all time")
+            time_slice_samples = slice(None)
+
+
+        if self._median_trace is None:
+            self.logger.info("No trace, allocating median trace empty array")
+            self._median_trace = np.full(self.n_samples, np.nan, dtype=np.float16)
+        if np.isnan(self._median_trace[time_slice_samples]).any():
+            self.logger.info("Missing data, calculating median trace")
+            self._median_trace[time_slice_samples] = np.median(
+                self.sig.load(channel_indexes=self.all_channels, time_slice=time_slice).magnitude,
+                axis=1
+            )
+        else:
+            self.logger.info("Returning cached median trace")
+
+        return self._median_trace[time_slice_samples]
+
     def detect_waveforms(self):
         if self.threshold is None:
             return
-        self.detect_chunk_size = int(3e6)
+        self.detect_chunk_size = int(1e7)
         self.waveforms = []
         self.timestamps = []
         # iterate through the whole file in chunks
+        self.logger.info(f"Detecting waveforms with threshold {self.threshold}")
         for i in range(0, self.n_samples, self.detect_chunk_size):
             start = i / self.sig.sampling_rate
             stop = np.clip(i+self.detect_chunk_size, 0, self.n_samples) / self.sig.sampling_rate
+            self.logger.info(f"Processing chunk {i}: {start} - {stop}")
             chunk = self.sig.load(time_slice=(start, stop), channel_indexes=self.channel_idx)
             chunk = chunk.magnitude.squeeze()
+            self.logger.info(f"Loaded chunk of size {chunk.size}")
             if self.is_cmr_enabled:
-                all_channels = self.sig.load(time_slice=(start, stop), channel_indexes=self.all_channels).magnitude
-                chunk = chunk - np.median(all_channels, axis=1)
+                median = self.get_median_trace(time_slice=(start, stop))
+                chunk = chunk - median
+                # all_channels = self.sig.load(time_slice=(start, stop), channel_indexes=self.all_channels).magnitude
+                # chunk = chunk - np.median(all_channels, axis=1)
+                self.logger.info(f"CMR applied")
             chunk = chunk * self.scale_factor
             if self.is_filter_enabled:
                 chunk = filt(chunk)
+                self.logger.info(f"Filter applied")
             # find the indices where the threshold is crossed
             crossings = np.where(chunk < self.threshold)[0]
+            self.logger.info(f"Found {crossings.size} crossings")
             #remove crossings that are too close to each other
-            crossings = crossings[np.diff(crossings, prepend=-40) > 32]
+            crossings = crossings[np.diff(crossings, prepend=-40) > 2]
+            self.logger.info(f"Removed crossings too close to each other. {crossings.size} crossings left")
             # get indexes of the waveforms
-            waveforms = np.array([chunk[crossing-8:crossing+32] for crossing in crossings])
+            # waveforms = np.array([chunk[crossing-8:crossing+32] for crossing in crossings])
             # if this is slow we can maybe do
-            # waveforms = chunk[np.repeat(crossings, 40) + np.tile(np.arange(-8, 32), crossings.size)].reshape(-1, 40)
+            waveforms = chunk[np.repeat(crossings, 40) + np.tile(np.arange(-8, 32), crossings.size)].reshape(-1, 40)
+            self.logger.info(f"Extracted {waveforms.shape[0]} waveforms")
             self.waveforms.append(waveforms)
             timestamps = crossings + i
             self.timestamps.append(timestamps)
@@ -163,11 +232,14 @@ class SingleChannelViewer:
             #     self.waveforms.append(waveform)
             #     # store the timestamp
             #     self.timestamps.append(i + crossing)
+        self.logger.info("Finished detecting waveforms, concatenating")
         self.waveforms = np.concatenate(self.waveforms, axis=0)
         self.timestamps = np.concatenate(self.timestamps)
+        self.logger.info("Finished concatenating")
         # self.waveforms = np.array(self.waveforms)
         # self.timestamps = np.array(self.timestamps)
         if self.update_spikes_callback is not None:
+            self.logger.info("Calling update_spikes_callback")
             self.update_spikes_callback(self.waveforms, self.timestamps)        
 
     def on_mouse_press(self, event):

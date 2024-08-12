@@ -13,12 +13,15 @@ from neo.io import SpikeGadgetsIO
 import quantities as pq
 import numpy as np
 
+import simianpy as simi
 from simiview.spikesort.app import SpikeSortApp
 from simiview.spikesort.single_channel_viewer import SingleChannelViewer
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    @simi.misc.add_logging
+    def __init__(self, logger=None):
         super(MainWindow, self).__init__()
+        self.logger = logger
         self.setWindowTitle("Spike Sort Application")
         self.setGeometry(0, 0, 500, 800)
 
@@ -26,16 +29,6 @@ class MainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QHBoxLayout(self.central_widget)
-
-        # # Set up table view for channels
-        # self.table = QTableWidget()
-        # self.table.setColumnCount(1)
-        # self.table.setHorizontalHeaderLabels(['Channels'])
-        # self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        # self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        # self.table.itemSelectionChanged.connect(self.select_channel)
-        # self.layout.addWidget(self.table)
 
         # Set up table view for channels
         self.table = QTableWidget()
@@ -45,7 +38,6 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.itemSelectionChanged.connect(self.select_channel)
-        # self.table.cellChanged.connect(self.on_cell_changed)
         self.layout.addWidget(self.table)
 
         # Container for VisPy app
@@ -78,7 +70,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction(doc_action)
 
         # Initial VisPy app setup
-        self.spike_sort_app = SpikeSortApp()
+        self.spike_sort_app = SpikeSortApp(logger=self.logger)
         # self.continuous_viewer = SingleChannelViewer()
         self.current_file = None
         self.current_data = None
@@ -162,7 +154,9 @@ class MainWindow(QMainWindow):
         print("Documentation is available at: http://example.com")
 
 if __name__ == '__main__':
+    import sys
+    loglevel = 'DEBUG' if  '-v' in sys.argv else 'WARNING'
     app = QApplication([])
-    window = MainWindow()
+    window = MainWindow(logger_kwargs={'loggerName': 'SpikeSorter', 'fileName': 'spikesort.log', 'printLevel': loglevel})
     window.show()
     app.exec_()

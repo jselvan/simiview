@@ -4,6 +4,7 @@ from vispy import scene
 from vispy.scene.visuals import XYZAxis, Markers
 from vispy.scene.cameras import ArcballCamera
 
+import simianpy as simi
 from simiview.spikesort.lasso import LassoSelector
 from simiview.spikesort.linecollection import LineCollection
 from simiview.spikesort.ccg_view_manager import CCGViewManager
@@ -13,10 +14,12 @@ from simiview.util import scale_time
 from simiview.spikesort.colours import COLOURS
 
 class SpikeSortApp(scene.SceneCanvas):
-    def __init__(self):
+    @simi.misc.add_logging
+    def __init__(self, logger=None):
         # Initialize SceneCanvas with no data
         scene.SceneCanvas.__init__(self, keys='interactive', size=(800, 600))
         self.unfreeze()
+        self.logger = logger
         self.threads = {}
 
         self.data_directory = None
@@ -58,7 +61,7 @@ class SpikeSortApp(scene.SceneCanvas):
 
         widget = grid.add_widget(row=5, col=0, col_span=3)
         view = widget.add_view()
-        self.continuous_viewer = SingleChannelViewer(view, self.load_data)
+        self.continuous_viewer = SingleChannelViewer(view, self.load_data, logger=self.logger)
         self.continuous_viewer.register_events(self)
 
         # Store home position of cameras
