@@ -1,4 +1,6 @@
 from pathlib import Path
+import json 
+
 import numpy as np
 from vispy import scene
 from vispy.scene.visuals import XYZAxis, Markers
@@ -10,16 +12,19 @@ from simiview.spikesort.linecollection import LineCollection
 from simiview.spikesort.ccg_view_manager import CCGViewManager
 from simiview.spikesort.single_channel_viewer import SingleChannelViewer
 from simiview.spikesort.unit_view_manager import UnitViewManager
+from simiview.spikesort.pointcloud_view_manager import PointCloudManager
 from simiview.util import scale_time
 from simiview.spikesort.colours import COLOURS
 
 class SpikeSortApp(scene.SceneCanvas):
     @simi.misc.add_logging
     def __init__(self, logger=None):
+        self.logger = logger
+        self.load_settings()
         # Initialize SceneCanvas with no data
         scene.SceneCanvas.__init__(self, keys='interactive', size=(800, 600))
         self.unfreeze()
-        self.logger = logger
+
         self.threads = {}
 
         self.data_directory = None
@@ -32,20 +37,17 @@ class SpikeSortApp(scene.SceneCanvas):
         self.timestamps_ms = None
         self.clusters = None
         self.active_cluster = 0
+        self.cluster_visible = {}
         self.active_point = None
+        self.state = None
 
         # Set up the main grid layout
         self.grid = grid = self.central_widget.add_grid()
-        self.pointcloud_container = grid.add_widget(row=0, col=0, row_span=5, col_span=2)
-        self.pointcloud_container.interactive = True
 
         # Initialize view for 3D point cloud
-        self.view = self.pointcloud_container.add_view()
-        self.view.camera = ArcballCamera(fov=0, scale_factor=200)
-        self.view.interactive = True
-        self.view.border_color = 'red'
-        axis = XYZAxis(parent=self.view.scene)
-        self.view.add(axis)
+        self.pointcloud_widget = grid.add_widget(row=0, col=0, row_span=5, col_span=2)
+        self.pointcloud_widget.interactive = True
+        self.pointcloud_view = PointCloudManager(self, self.pointcloud_widget)
 
         # Initialize view for waveform graph
         self.graph_widget = grid.add_widget(row=0, col=2, row_span=2)
@@ -65,21 +67,27 @@ class SpikeSortApp(scene.SceneCanvas):
         self.continuous_viewer.register_events(self)
 
         # Store home position of cameras
-        self.view.camera.set_default_state()
+        # self.view.camera.set_default_state()
         self.graph_view.camera.set_default_state()
 
         # Initialize scatter plot and lines for waveforms
-        self.scatter = Markers()
-        self.view.add(self.scatter)
         self.lines = LineCollection()
         self.graph_view.add(self.lines)
 
         # Lasso selector for selecting points in the scatter plot
-        self.lasso = LassoSelector(self, self.pointcloud_container, callback=self.update_cluster)
+        self.lasso = LassoSelector(self.pointcloud_view, callback=self.update_cluster, get_active_color=self.get_active_color)
         self.lasso.register_events(self)
 
         self.show()
     
+    def get_active_color(self):
+        if self.state is None or self.state == 'add':
+            return COLOURS[self.active_cluster]
+        elif self.state == 'remove':
+            return COLOURS[0]
+        elif self.state == 'invalidate':
+            return COLOURS[-1]
+
     def set_parent_directory(self, path):
         # Create a save path directory if it does not exist
         self.data_directory = Path(path)
@@ -149,6 +157,33 @@ class SpikeSortApp(scene.SceneCanvas):
         self.unit_manager.update_units_view()
         self.ccg_manager.update_ccgs()
     
+    def _get_var(self, dimension):
+        if dimension == 'Timestamp':
+            return self.timestamps * 10 / self.timestamps.max()
+        elif dimension.startswith('PCA'):
+            idx = int(dimension.split(' ')[-1]) - 1
+            return self.points[:, idx]
+        elif dimension == 'Peak Amplitude':
+            return self.waveforms.max(axis=1)
+        elif dimension == 'Peak Time':
+            return self.waveforms.argmax(axis=1)
+        elif dimension == 'Valley Amplitude':
+            return self.waveforms.min(axis=1)
+        elif dimension == 'Valley Time':
+            return self.waveforms.argmin(axis=1)
+        elif dimension == 'Peak-to-Valley Amplitude':
+            return self.waveforms.max(axis=1) - self.waveforms.min(axis=1)
+        elif dimension == 'Peak-to-Valley Time':
+            return self.waveforms.argmax(axis=1) - self.waveforms.argmin(axis=1)
+        else:
+            raise ValueError(f"Invalid dimension: {dimension}")
+
+    def get_points(self, dimensions):
+        if self.points is None:
+            return
+        else:
+            return np.stack([self._get_var(dimension) for dimension in dimensions]).T
+
     def save_data(self):
         """Save the current data to the save path."""
         np.save(self.save_path / 'waveforms.npy', self.waveforms)
@@ -162,16 +197,36 @@ class SpikeSortApp(scene.SceneCanvas):
             return
 
         # Update the scatter plot with new points
-        self.scatter.set_data(self.points)
-
+        self.pointcloud_view.update_points()
         # Update the waveform lines
         self.lines.set_data(lines=self.waveforms)
-
         # Update camera views
-        self.view.camera.set_default_state()
         minval, maxval = self.waveforms.min(None), self.waveforms.max(None)
         self.graph_view.camera.rect = (0, minval), (40, maxval - minval)
         self.graph_view.camera.set_default_state()
+
+    def invalidate_cluster(self, cluster):
+        """Invalidate a cluster by setting all points to -1."""
+        self.clusters[self.clusters == cluster] = -1
+        self._update_clusters()
+    
+    def delete_cluster(self, cluster):
+        """Delete a cluster by setting all points to 0."""
+        self.clusters[self.clusters == cluster] = 0
+        self._update_clusters()
+    
+    def merge_clusters(self, clusters, new_cluster_id):
+        self.clusters[np.isin(self.clusters, clusters)] = new_cluster_id
+
+    def _update_clusters(self):
+        np.save(self.save_path / 'clusters.npy', self.clusters)
+        self.update_colors()
+        self.ccg_manager.update_ccgs()
+        self.unit_manager.update_units_view()
+
+    def set_cluster_visibility(self, cluster, visible):
+        self.cluster_visible[cluster] = visible
+        raise NotImplementedError("Cluster visibility not implemented yet")
 
     def update_cluster(self, indices):
         """Update clusters based on selected indices."""
@@ -184,76 +239,94 @@ class SpikeSortApp(scene.SceneCanvas):
             self.clusters[indices] = self.active_cluster
         elif self.state == 'invalidate':
             self.clusters[indices] = -1
-        np.save(self.save_path / 'clusters.npy', self.clusters)
-        self.update_colors()
-        self.ccg_manager.update_ccgs()
-        self.unit_manager.update_units_view()
+        self.state = None # Reset state after updating clusters
+        self._update_clusters()
+
+    def get_colors(self):
+        colors = np.ones((self.points.shape[0], 4), dtype=np.float32)
+        for cluster, color in COLOURS.items():
+            indices = self.clusters == cluster
+            colors[indices, :3] = color
+        if self.active_point is not None:
+            colors[:, -1] = .1
+            colors[self.active_point, -1] = 1.
+        else:
+            colors[:, -1] = 1.
+        return colors
 
     def update_colors(self):
         """Update colors of the scatter plot and lines based on clusters."""
         if self.points is None:
             return
-
-        colors = np.ones((self.points.shape[0], 4), dtype=np.float32)
-        for cluster, color in COLOURS.items():
-            indices = self.clusters == cluster
-            colors[indices, :3] = color
+        colors = self.get_colors()
         z_order = self.clusters.copy()
         if self.active_point is not None:
-            colors[:, -1] = .1
-            colors[self.active_point, -1] = 1.
-            z_order[self.active_point] = 100
-        else:
-            colors[:, -1] = 1.
-
+            z_order[self.active_point] = self.clusters.max() + 10
+        if self.active_cluster != 0:
+            z_order[self.clusters == self.active_cluster] = self.clusters.max() + 1
         # Update the colors of scatter plot and lines
-        self.scatter.set_data(self.points, face_color=colors, edge_color=None)
+        self.pointcloud_view.update_colors()
         self.lines.set_data(color=colors, zorder=z_order)
 
     def reset_cameras(self):
         """Reset cameras to their default positions."""
-        self.view.camera.reset()
+        self.pointcloud_view.reset_camera()
         self.graph_view.camera.reset()
 
+    def load_settings(self):
+        with open('settings.json', 'r') as file:
+            settings = json.load(file)
+        self.keybindings = settings.pop('keybindings', {})
+
     def on_key_press(self, event):
-        """Handle key press events for lasso and cluster operations."""
-        handled = True
-        if 'Control' in event.modifiers and event.key == "d":
-            self.lasso.active = True
-            self.state = 'remove'
-        elif 'Control' in event.modifiers and event.key == "a":
-            self.lasso.active = True
-            self.state = 'add'
-        elif 'Control' in event.modifiers and event.key == "n":
-            self.lasso.active = True
-            self.active_cluster = self.clusters.max() + 1
-            self.state = 'add'
-        elif event.key == 'h':
-            self.reset_cameras()
-        else:
-            handled = False
-            for key in '1234':
-                if event.key == key:
-                    self.active_cluster = int(key)
-                    handled = True
+        """Handle key press events based on self.keybindings."""
+        handled = False
+        
+        # Normalize the event key
+        event_modifiers = set(event.modifiers)
+
+        for binding in self.keybindings:
+            # Parse the combination string
+            combination = binding['combination']
+            modifiers = set()
+            key = combination
+             
+            # Separate modifiers and key
+            if '+' in combination:
+                parts = combination.split('+')
+                modifiers = set(parts[:-1])
+                key = parts[-1]
+            else:
+                modifiers = set()
+            # Check if the event matches the binding
+            if modifiers == event_modifiers and event.key == key:
+                if binding['action'] == 'remove':
+                    self.lasso.active = True
+                    self.state = 'remove'
+                elif binding['action'] == 'add':
+                    self.lasso.active = True
+                    self.state = 'add'
+                elif binding['action'] == 'invalidate':
+                    self.lasso.active = True
+                    self.state = 'invalidate'
+                elif binding['action'] == 'new_cluster':
+                    self.lasso.active = True
+                    self.active_cluster = self.clusters.max() + 1
+                    self.state = 'add'
+                elif binding['action'] == 'reset_cameras':
+                    self.reset_cameras()
+                elif binding['action'] == 'set_cluster':
+                    self.active_cluster = binding['cluster']
+                handled = True
+                break
+
         if not handled:
             return event
-
-    def on_mouse_move(self, event):
-        """Handle mouse movement for highlighting points."""
-        if 'Alt' in event.modifiers and self.points is not None:
-            # Find the nearest point in the scatter plot
-            pos = event.pos
-            points = self.scatter.get_transform('visual', 'canvas').map(self.points)
-            points = points[:, :2] / points[:, 3:]
-
-            distances = np.linalg.norm(points - pos, axis=1)
-            self.active_point = np.argmin(distances)
-            self.update_colors()
-        else:
-            if self.active_point is not None:
-                self.active_point = None
-                self.update_colors()
+        
+    def set_active_point(self, point):
+        """Set the active point for highlighting."""
+        self.active_point = point
+        self.update_colors()
 
     def close(self):
         """Clean up before closing the application."""

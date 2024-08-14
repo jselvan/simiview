@@ -1,15 +1,19 @@
 import numpy as np
 from vispy.scene.visuals import Line
 
+from simiview.spikesort.points_in_poly import points_in_polygon
 class LassoSelector:
     MIN_MOVE_UPDATE_THRESHOLD = 5
-    def __init__(self, parent, container, callback=None):
-        self.lasso_visual = Line(color='yellow', width=2, method='gl', connect='strip')
-        self.lasso_view = container.add_view()
+    def __init__(self, scatter_manager, callback=None, get_active_color=None):
+        if get_active_color is None:
+            get_active_color = lambda: 'yellow'
+        self.get_active_color = get_active_color
+        self.lasso_visual = Line(color=self.get_active_color(), width=2, method='gl', connect='strip')
+        self.lasso_view = scatter_manager.widget.add_view()
         self.lasso_view.interactive = False  # Make the lasso view non-interactive
         self.lasso_view.add(self.lasso_visual)
 
-        self.parent = parent
+        self.scatter_manager = scatter_manager
         self.selected_points = []
         self.lasso_points = []
         self.dragging = False
@@ -19,9 +23,14 @@ class LassoSelector:
 
     @property
     def points(self):
-        points = self.parent.scatter.get_transform('visual', 'canvas').map(self.parent.points)
+        points = self.scatter_manager.scatter.get_transform('visual', 'canvas').map(self.scatter_manager.points)
         points /= points[:,3:]
         return points
+
+    def register_events(self, parent):
+        parent.events.mouse_press.connect(self.on_mouse_press)
+        parent.events.mouse_release.connect(self.on_mouse_release)
+        parent.events.mouse_move.connect(self.on_mouse_move)
 
     def on_mouse_press(self, event):
         if self.active and event.button == 1:
@@ -29,11 +38,6 @@ class LassoSelector:
             self.dragging = True
             self.last_position = None
             self.update_lasso()
-
-    def register_events(self, parent):
-        parent.events.mouse_press.connect(self.on_mouse_press)
-        parent.events.mouse_release.connect(self.on_mouse_release)
-        parent.events.mouse_move.connect(self.on_mouse_move)
 
     def on_mouse_release(self, event):
         if self.dragging:
@@ -65,19 +69,13 @@ class LassoSelector:
             self.lasso_visual.set_data(np.empty((0, 2)))
         else:
             trail = self._get_lasso_poly(trail, closed)
-            self.lasso_visual.set_data(trail, color='yellow', width=2)
+            self.lasso_visual.set_data(trail, color=self.get_active_color(), width=2)
 
     def select_points(self, poly):
         if poly.shape[0] < 3:
             return
 
-        indices = self.points_in_polygon(self.points, poly)
+        indices = points_in_polygon(self.points, poly)
         self.selected_points = indices
         if self.callback is not None:
             self.callback(indices)
-
-    def points_in_polygon(self, points, poly):
-        from matplotlib.path import Path
-        path = Path(poly)
-        inside = path.contains_points(points[:, :2])
-        return np.where(inside)[0]

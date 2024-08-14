@@ -1,5 +1,7 @@
 import numpy as np
 from vispy.scene.visuals import Line, Text
+from vispy.scene import PanZoomCamera
+from PyQt5 import QtWidgets, QtCore, QtGui
 
 from simiview.spikesort.colours import COLOURS
 
@@ -12,11 +14,8 @@ class UnitViewManager:
         self.unit_waveforms = {}
         self.units_grid = self.widget.add_grid()
 
-        # select all clusters but the noise cluster by default
-        if self.clusters is not None:
-            self.selected = set(self.clusters[self.clusters != -1])
-        else:
-            self.selected = set()
+        self.selected = set()
+        self.active = None
 
     @property
     def waveform_xy(self):
@@ -36,9 +35,11 @@ class UnitViewManager:
 
     def _add_units_view(self, cluster):
         view = self.units_grid.add_view(row=0, col=cluster)
-        view.camera = 'panzoom'
+        view.camera = PanZoomCamera(aspect=1)
+        view.camera.interactive = False
         view.camera.rect = self.waveform_rect
-        view.border_color = COLOURS[cluster]
+        view.border_color = 'black'
+        view.padding = 5
         view.events.mouse_press.connect(self.mouse_press_handler_gen(cluster))
         self.unit_views[cluster] = view
 
@@ -47,26 +48,59 @@ class UnitViewManager:
             self.selected.remove(cluster)
         else:
             self.selected.add(cluster)
+        self.update_viewbox_states()
+    def reset_selected(self):
+        self.selected = set()
+        self.update_viewbox_states()
+
+    def update_viewbox_states(self):
         for c, view in self.unit_views.items():
             if c in self.selected:
-                view.bgcolor = 'black'
+                view.bgcolor = (0.2, 0.2, 0.2, 1)
             else:
-                view.bgcolor = 'grey'
+                view.bgcolor = 'black'
+            if c == self.active:
+                view.border_color = COLOURS[c]
+            else:
+                view.border_color = 'black'
 
     def set_active(self, cluster):
-        for c, view in self.unit_views.items():
-            if c == cluster:
-                view.bgcolor = 'white'
-            else:
-                view.bgcolor = 'black'
+        self.active = cluster
+        self.update_viewbox_states()
 
     def mouse_press_handler_gen(self, cluster):
         def mouse_press_handler(event):
-            if event.button == 1:
+            if event.button == 1 and 'Shift' in event.mouse_event.modifiers:
+                self.set_selected(cluster)
+                self.set_active(cluster)
+            elif event.button == 1:
+                self.reset_selected()
                 self.set_active(cluster)
             elif event.button == 2:
-                self.set_selected(cluster)
+                # self.set_selected(cluster)
+                # use pyqt5 to create a context menu
+                if cluster not in self.selected:
+                    self.reset_selected()
+                    self.set_active(cluster)
+                self.customContextMenu()
         return mouse_press_handler
+
+    def customContextMenu(self):
+        # widget = self.widget.canvas.native
+        # widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # widget.customContextMenuRequested.connect(self.emptySpaceMenu)
+        menu = QtWidgets.QMenu(self.widget.canvas.native)
+        if self.selected:
+            # allow merge
+            menu.addAction("Merge selected", self.customAction)
+        # check hidden state and set appropriate action
+        # menu.addAction("Hide", self.customAction)
+        # menu.addAction("Show", self.customAction)
+        menu.addAction("Invalidate", self.customAction)
+        menu.exec_(QtGui.QCursor.pos())
+
+    def customAction(self):
+        print("Custom action on", self.selected if self.selected else self.active)
 
     def update_units_grid(self):
         existing_views = list(self.unit_views.keys())

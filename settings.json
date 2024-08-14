@@ -1,0 +1,50 @@
+{
+  "windows": {
+    "vispy": {
+      "position": [200, 0],
+      "size": [1720, 1030]
+    }
+  },
+  "keybindings": [
+    {
+      "combination": "Control+d",
+      "action": "remove"
+    },
+    {
+      "combination": "Control+a",
+      "action": "add"
+    },
+    {
+      "combination": "Control+r",
+      "action": "invalidate"
+    },
+    {
+      "combination": "Control+n",
+      "action": "new_cluster"
+    },
+    {
+      "combination": "h",
+      "action": "reset_cameras"
+    },
+    {
+      "combination": "1",
+      "action": "set_cluster",
+      "cluster": 1
+    },
+    {
+      "combination": "2",
+      "action": "set_cluster",
+      "cluster": 2
+    },
+    {
+      "combination": "3",
+      "action": "set_cluster",
+      "cluster": 3
+    },
+    {
+      "combination": "4",
+      "action": "set_cluster",
+      "cluster": 4
+    }
+  ]
+}
