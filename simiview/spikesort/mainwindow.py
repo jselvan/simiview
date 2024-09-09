@@ -1,4 +1,5 @@
 from pathlib import Path
+import warnings
 
 from PyQt5.QtWidgets import (
     QMainWindow, QApplication, QVBoxLayout, QHBoxLayout,
@@ -9,7 +10,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
-from neo.io import SpikeGadgetsIO
+from neo.io import SpikeGadgetsIO, Plexon2IO
 import quantities as pq
 import numpy as np
 
@@ -23,7 +24,7 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.logger = logger
         self.setWindowTitle("Spike Sort Application")
-        self.setGeometry(0, 0, 500, 800)
+        self.setGeometry(0, 0, 200, 1030)
 
         # Central widget
         self.central_widget = QWidget()
@@ -82,12 +83,28 @@ class MainWindow(QMainWindow):
     def load_data(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open Data File", "", "Spike Gadgets Rec File (*.rec);;All Files (*)", options=options)
+        file_name, file_ext = QFileDialog.getOpenFileName(self, 
+            "Open Data File", "", 
+            "Spike Gadgets Rec File (*.rec);;Plexon Files (*.pl2);;All Files (*)", 
+            options=options)
+        ftype_handlers = {
+            "Spike Gadgets Rec File (*.rec)": SpikeGadgetsIO,
+            "Plexon Files (*.pl2)": Plexon2IO
+        }
         if file_name:
-            self.current_file = SpikeGadgetsIO(file_name)
+            if file_ext in ftype_handlers:
+                self.current_file = ftype_handlers[file_ext](file_name)
+            else:
+                raise ValueError(f"Unsupported file type: {file_ext}")
+            # self.current_file = SpikeGadgetsIO(file_name)
             self.signal_data = self.current_file.read_block(lazy=True).segments[0].analogsignals[0]
             self.data_path = Path(file_name).with_suffix('.simiview') / 'spikesort'
-            channels = self.current_file.header['signal_channels']['name']
+
+            if file_ext == "Plexon Files (*.pl2)":
+                channels = [channel for channel in self.current_file.header['signal_channels']['name'] if 'WB' in channel]
+                warnings.warn("Plexon files are not fully supported. Do not use common median rejection.")
+            else:
+                channels = self.current_file.header['signal_channels']['name']
 
             self.spike_sort_app.load_session(self.data_path, self.signal_data, self.get_channel_indices(channels))
             if (self.data_path / 'bad_channels.txt').exists():
@@ -155,7 +172,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == '__main__':
     import sys
-    loglevel = 'DEBUG' if  '-v' in sys.argv else 'WARNING'
+    loglevel = 'DEBUG' if  '-v' in sys.argv else 'WARN'
     app = QApplication([])
     window = MainWindow(logger_kwargs={'loggerName': 'SpikeSorter', 'fileName': 'spikesort.log', 'printLevel': loglevel})
     window.show()

@@ -4,7 +4,7 @@ from vispy.scene.visuals import InfiniteLine
 from itertools import combinations
 
 from simiview.spikesort.colours import COLOURS
-from simiview.spikesort.barplot import BarPlot
+from simiview.util.barplot import BarPlot
 from simiview.spikesort.ccg_matrix import ccg_matrix
 
 
