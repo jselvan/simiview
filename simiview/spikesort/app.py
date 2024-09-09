@@ -8,7 +8,7 @@ from vispy.scene.cameras import ArcballCamera
 
 import simianpy as simi
 from simiview.spikesort.lasso import LassoSelector
-from simiview.spikesort.linecollection import LineCollection
+from simiview.util.linecollection import LineCollection
 from simiview.spikesort.ccg_view_manager import CCGViewManager
 from simiview.spikesort.single_channel_viewer import SingleChannelViewer
 from simiview.spikesort.unit_view_manager import UnitViewManager
@@ -260,10 +260,11 @@ class SpikeSortApp(scene.SceneCanvas):
             return
         colors = self.get_colors()
         z_order = self.clusters.copy()
-        if self.active_point is not None:
-            z_order[self.active_point] = self.clusters.max() + 10
         if self.active_cluster != 0:
             z_order[self.clusters == self.active_cluster] = self.clusters.max() + 1
+        if self.active_point is not None:
+            # Set the active point to the very front
+            z_order[self.active_point] = 99
         # Update the colors of scatter plot and lines
         self.pointcloud_view.update_colors()
         self.lines.set_data(color=colors, zorder=z_order)

@@ -1,6 +1,6 @@
 from typing import Generator
 
-from simiview.simiview.trial import Trial
+from simiview.trial import Trial
 
 def filter_trials(trials, conditions, attributes) -> Generator[Trial]:
     for trial in trials:
